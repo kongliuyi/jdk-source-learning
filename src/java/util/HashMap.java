@@ -570,14 +570,19 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     final Node<K,V> getNode(int hash, Object key) {
         Node<K,V>[] tab; Node<K,V> first, e; int n; K k;
+        // 定位键值对所在桶的位置
         if ((tab = table) != null && (n = tab.length) > 0 &&
             (first = tab[(n - 1) & hash]) != null) {
+            // 检查桶的第一个节点，如果是就直接返回，
             if (first.hash == hash && // always check first node
                 ((k = first.key) == key || (key != null && key.equals(k))))
                 return first;
+            // 否则检查下一个节点
             if ((e = first.next) != null) {
+                // 如果 first 是 TreeNode 类型，则调用黑红树查找方法
                 if (first instanceof TreeNode)
                     return ((TreeNode<K,V>)first).getTreeNode(hash, key);
+                //  对链表进行遍历查找
                 do {
                     if (e.hash == hash &&
                         ((k = e.key) == key || (key != null && key.equals(k))))
@@ -804,8 +809,10 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             TreeNode<K,V> hd = null, tl = null;
             do {
                 // 将普通节点替换成树形节点，这里想要理解最好画一个图,（图类似 一个单链表）
-                // 假设有树形 P0,P1,P2,P3，则 P3.prev -> P2,P2.prev -> P1,P1.prev -> P0
-                // hd -> P0,tl -> P3,tl.next -> P3 (仅供参考)
+                // 假设有树形 P0,P1,P2,P3，则 hd -> P0
+                // P0.next -> P1,P1.next -> P2,P2.next -> P3
+                // P3.prev -> P2,P2.prev -> P1,P1.prev -> P0
+                // tl -> P3 (仅供参考) 也算是一种双向环状链表
                 TreeNode<K,V> p = replacementTreeNode(e, null);
                 if (tl == null)
                     hd = p;
@@ -862,15 +869,19 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                                boolean matchValue, boolean movable) {
         Node<K,V>[] tab; Node<K,V> p; int n, index;
         if ((tab = table) != null && (n = tab.length) > 0 &&
+                // 1. 定位桶位置
             (p = tab[index = (n - 1) & hash]) != null) {
             Node<K,V> node = null, e; K k; V v;
+            // 如果键的值与链表第一个节点相等，则将 node 指向该节点
             if (p.hash == hash &&
                 ((k = p.key) == key || (key != null && key.equals(k))))
                 node = p;
             else if ((e = p.next) != null) {
+                // 如果是 TreeNode 类型，调用红黑树的查找逻辑定位待删除节点
                 if (p instanceof TreeNode)
                     node = ((TreeNode<K,V>)p).getTreeNode(hash, key);
                 else {
+                    // 2. 遍历链表，找到待删除节点
                     do {
                         if (e.hash == hash &&
                             ((k = e.key) == key ||
@@ -882,6 +893,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                     } while ((e = e.next) != null);
                 }
             }
+            // 3. 删除节点，并修复链表或红黑树
             if (node != null && (!matchValue || (v = node.value) == value ||
                                  (value != null && value.equals(v)))) {
                 if (node instanceof TreeNode)
@@ -1478,6 +1490,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             current = next = null;
             index = 0;
             if (t != null && size > 0) { // advance to first entry
+                // 寻找第一个包含链表节点引用的桶
                 do {} while (index < t.length && (next = t[index++]) == null);
             }
         }
@@ -1486,14 +1499,20 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             return next != null;
         }
 
+
         final Node<K,V> nextNode() {
             Node<K,V>[] t;
+            // nextNode 的节点就是 next 本身,相当于预支
             Node<K,V> e = next;
             if (modCount != expectedModCount)
                 throw new ConcurrentModificationException();
             if (e == null)
                 throw new NoSuchElementException();
+            // 因为是预支，所以需要判断并获取 nextNode.next
+            // 这里要注意的是，假设桶对应的链表是树状的为什么还是 e.next 呢？
+            // 将 TreeNode 转化为红黑树之前，把所有的 TreeNode 转化成一套双向环状链表。我们可以看 treeifyBin 这个方法，有示例
             if ((next = (current = e).next) == null && (t = table) != null) {
+                // 寻找下一个包含链表节点引用的桶
                 do {} while (index < t.length && (next = t[index++]) == null);
             }
             return e;
@@ -2000,12 +2019,16 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         }
 
         /**
+         * 红黑树中仍然保留了原链表节点顺序。有了这个前提，
+         * 再将红黑树转成链表就简单多了，仅需将 TreeNode 链表转成 Node 类型的链表即可
          * Returns a list of non-TreeNodes replacing those linked from
          * this node.
          */
         final Node<K,V> untreeify(HashMap<K,V> map) {
             Node<K,V> hd = null, tl = null;
+            // 遍历 TreeNode 链表，并用 Node 替换
             for (Node<K,V> q = this; q != null; q = q.next) {
+                // 替换节点类型
                 Node<K,V> p = map.replacementNode(q, null);
                 if (tl == null)
                     hd = p;
@@ -2189,6 +2212,10 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             TreeNode<K,V> loHead = null, loTail = null;
             TreeNode<K,V> hiHead = null, hiTail = null;
             int lc = 0, hc = 0;
+            /*
+             * 红黑树节点仍然保留了 next 引用，故仍可以按链表方式遍历红黑树。
+             * 下面的循环是对红黑树节点进行分组，与上面类似
+             */
             for (TreeNode<K,V> e = b, next; e != null; e = next) {
                 next = (TreeNode<K,V>)e.next;
                 e.next = null;
@@ -2209,21 +2236,31 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                     ++hc;
                 }
             }
-
             if (loHead != null) {
+                // 如果 loHead 不为空，且链表长度小于等于 6，则将红黑树转成链表
                 if (lc <= UNTREEIFY_THRESHOLD)
                     tab[index] = loHead.untreeify(map);
                 else {
                     tab[index] = loHead;
+                    /*
+                     * hiHead == null 时，表明扩容后，
+                     * 所有节点仍在原桶位置，树结构不变，无需重新树化
+                     */
                     if (hiHead != null) // (else is already treeified)
                         loHead.treeify(tab);
                 }
             }
+            // 与上面类似
             if (hiHead != null) {
+                // 如果 hiHead 不为空，且链表长度小于等于 6，则将红黑树转成链表
                 if (hc <= UNTREEIFY_THRESHOLD)
                     tab[index + bit] = hiHead.untreeify(map);
                 else {
                     tab[index + bit] = hiHead;
+                    /*
+                     * hiHead == null 时，表明扩容后，
+                     * 所有节点都在扩容后的新桶位置，树结构不变，无需重新树化
+                     */
                     if (loHead != null)
                         hiHead.treeify(tab);
                 }
