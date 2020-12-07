@@ -627,7 +627,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * @param hash hash for key
      * @param key the key
      * @param value the value to put
-     * @param onlyIfAbsent if true, don't change existing value
+     * @param onlyIfAbsent if true, don't change existing value  表示是否仅在 oldValue 为 null 的情况下更新键值对的值
      * @param evict if false, the table is in creation mode.
      * @return previous value, or null if none
      */
@@ -637,7 +637,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         // 首次插入数据进行容器的初始化
         if ((tab = table) == null || (n = tab.length) == 0)
             n = (tab = resize()).length;
-        // 如果 table 的在（n-1）&hash 的值是空，就新建一个节点插入在该位置
+        // 如果 table 在（n-1）&hash 的值是空，就新建一个节点插入在该位置
         if ((p = tab[i = (n - 1) & hash]) == null)
             tab[i] = newNode(hash, key, value, null);
         else {
@@ -759,8 +759,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                         do {
                             next = e.next;
                             // 如果为 true，代表 旧哈希桶位置与新哈希桶所在的不变
-                            // 假设原桶大小为16，扩容为32. 旧哈希桶链表长度2，分别哈希为 17和1（在桶下标位置第1个）
-                            // 则新桶下表位置分别为16和0
+                            // 假设原桶大小为16，扩容为32. 旧哈希桶链表长度2，分别哈希为 17 和 1（在桶下标位置第1个）
+                            // 则新桶下表位置分别为第17个 和 第 1 个,即 tab[16] 和 tab[0]
                             if ((e.hash & oldCap) == 0) {
                                 if (loTail == null)
                                     loHead = e;
@@ -808,11 +808,12 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             // hd 为头节点（head），tl 为尾节点（tail）
             TreeNode<K,V> hd = null, tl = null;
             do {
-                // 将普通节点替换成树形节点，这里想要理解最好画一个图,（图类似 一个单链表）
+                // 将普通节点替换成树形节点，并用双向链表互相引用,我认为作用是便于集合遍历
+                // 这里想要理解最好画一个图,我画图如下:
                 // 假设有树形 P0,P1,P2,P3，则 hd -> P0
                 // P0.next -> P1,P1.next -> P2,P2.next -> P3
                 // P3.prev -> P2,P2.prev -> P1,P1.prev -> P0
-                // tl -> P3 (仅供参考) 也算是一种双向环状链表
+                // tl -> P3 (仅供参考) 是一种双向链表
                 TreeNode<K,V> p = replacementTreeNode(e, null);
                 if (tl == null)
                     hd = p;
@@ -823,7 +824,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                 tl = p;
             } while ((e = e.next) != null);
             if ((tab[index] = hd) != null)
-                // 将树形链表转换成红黑树
+                // 将树形链表转换成红黑树,如何转换的我没有深入了解.(以后复习算法在深入)
                 hd.treeify(tab);
         }
     }
