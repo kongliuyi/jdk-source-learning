@@ -1017,10 +1017,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             // 检查是否初始化了，如果没有，则初始化
             if (tab == null || (n = tab.length) == 0)
                 tab = initTable();
-            // 如果 table 在（n-1）&hash 的值是空，就新建一个节点利用CAS操作直接存储在该位置,成功则退出死循环
+                // 如果 table 在（n-1）&hash 的值是空，就新建一个节点利用 CAS 操作直接存储在该位置,成功则退出死循环
             else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
                 if (casTabAt(tab, i, null,
-                             new Node<K,V>(hash, key, value, null)))
+                        new Node<K,V>(hash, key, value, null)))
                     break;                   // no lock when adding to empty bin
             }
             // 检查 table[i] 的节点的 hash 是否等于 MOVED，如果等于，则检测到正在扩容，则帮助其扩容.ps: 该下标位的哈希桶已经迁移完成
@@ -1039,10 +1039,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                                 K ek;
                                 // 条件为 true，表示当前链表包含要插入的键值对，终止遍历
                                 if (e.hash == hash &&
-                                    ((ek = e.key) == key ||
-                                     (ek != null && key.equals(ek)))) {
+                                        ((ek = e.key) == key ||
+                                                (ek != null && key.equals(ek)))) {
                                     oldVal = e.val;
-                                    // onlyIfAbsent 表示是新元素才加入，旧值不替换，默认为fase。
+                                    // onlyIfAbsent 表示是新元素才加入，旧值不替换，默认为 false。
                                     if (!onlyIfAbsent)
                                         e.val = value;
                                     break;
@@ -1051,7 +1051,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                                 // 直到遍历到链表尾节点时,如果还没有找到值为 key 的节点，那就直接新建 Node 加入到该链表尾部即可
                                 if ((e = e.next) == null) {
                                     pred.next = new Node<K,V>(hash, key,
-                                                              value, null);
+                                            value, null);
                                     break;
                                 }
                             }
@@ -1060,8 +1060,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                         else if (f instanceof TreeBin) {
                             Node<K,V> p;
                             binCount = 2;
+                            // putTreeVal 插入返回 null，修改返回旧节点
                             if ((p = ((TreeBin<K,V>)f).putTreeVal(hash, key,
-                                                           value)) != null) {
+                                    value)) != null) {
                                 oldVal = p.val;
                                 if (!onlyIfAbsent)
                                     p.val = value;
@@ -1081,6 +1082,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 }
             }
         }
+        // 计数以及扩容检查和扩容，由前面逻辑可知，只有插入节点才进入此方法
         addCount(1L, binCount);
         return null;
     }
@@ -2230,8 +2232,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     static final int resizeStamp(int n) {
         // 1.Integer.numberOfLeadingZeros(n)
         // 返回这个数据的二进制串中从最左边算起连续的“0”的总数量。
-        // 因为int类型的数据长度为32所以高位不足的地方会以“0”填充
-        // 假设 n =16, 则值为 32 - 5 = 27, 高16位 0000 0000 0000 0000 低16位 0000 0000 0001 1011
+        // 因为 int 类型的数据长度为 32位，所以高位不足的地方会以“0”填充
+        // 假设 n =16, 高16位 0000 0000 0000 0000 低16位 0000 0000 0001 1011  ，则值为 32 - 5 = 27,
+        // 高16位 0000 0000 0000 0000 低16位 0000 0000 0001 1011
         // 2.1 << (RESIZE_STAMP_BITS - 1)
         // 高16位 0000 0000 0000 0000 低16位 1000 0000 0000 0000
         // 结果:低16位 0000 0000 0001 1011 | 1000 0000 0000 0000 = 1000 0000 0001 1011 = 32795
@@ -2243,12 +2246,16 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      */
     private final Node<K,V>[] initTable() {
         Node<K,V>[] tab; int sc;
+        // table 和 sizeCtl 都被 volatile 修饰，都具有可见性,说明 table 容器初始化成功就可退出循环。
         while ((tab = table) == null || tab.length == 0) {
+            // 当 sizeCtl < 0 ，可能将该线程 CPU 让出
             if ((sc = sizeCtl) < 0)
                 Thread.yield(); // lost initialization race; just spin
+            // CAS 操作将 sizeCtl 值改为 -1
             else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
                 try {
                     if ((tab = table) == null || tab.length == 0) {
+                        // 扩容数组长度，默认 16
                         int n = (sc > 0) ? sc : DEFAULT_CAPACITY;
                         @SuppressWarnings("unchecked")
                         Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];
@@ -2278,10 +2285,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     private final void addCount(long x, int check) {
         CounterCell[] as; long b, s;
         // 步骤一
-        // 1、如果计数盒子(counterCells)不为
-        // 2、如果计数盒子为空，则对baseCount做+1操作； baseCount 用来做元素size记录，
+        // 1、如果计数盒子(counterCells)不为空
+        // 2、如果计数盒子为空，则对 baseCount 做+1操作； baseCount 用来做元素 size 记录，
         // 如果更新成功了，则直接到执行 步骤二
-        // 如果更新失败了，则进入,虽然对 baseCount 做 +1 操作失败了,但是 s=b+x 却保留了下来；
+        // 如果更新失败了，则进入, 虽然对 baseCount 做 +1 操作失败了,但是 s = b + x 却保留了下来；
         // s 记录了当前 map 中总共添加了多少节点。
         if ((as = counterCells) != null ||
             !U.compareAndSwapLong(this, BASECOUNT, b = baseCount, s = b + x)) {
@@ -2294,9 +2301,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 fullAddCount(x, uncontended);
                 return;
             }
-            // 如果 check <= 1 直接返回； binCount=1 ,表明符合条件的是 hash 桶的首节点
-            // 1.hash 桶首节点是 null,直接插入
-            // 2.hash 桶首节点不是 null,需要被修改；
+            // 如果 check <= 1 直接返回；对 hash 桶的首节点操作直接返回
+            // check < 0  未知待研究
+            // check = 0, 表明符合插入条件的是 hash 桶的首节点是 null
+            // check = 1, 未知待研究
             if (check <= 1)
                 return;
             // 记录了当前 map 中总共添加了多少节点。
@@ -2309,16 +2317,16 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             // 则执行数组扩容操作； 将数组的长度扩大为原来的 2 倍
             while (s >= (long)(sc = sizeCtl) && (tab = table) != null &&
                    (n = tab.length) < MAXIMUM_CAPACITY) {
-                // 当 n=16 时，rs = 32795
+                // length 扩容标识,当 n=16 时，rs = 32795
                 int rs = resizeStamp(n);
                 // sc < 0 表示已经有线程在进行扩容工作
                 if (sc < 0) {
-                    // 条件1：检查 高 16 位是 length 生成的标识符 是否相等
-                    // 相等表示正在扩容,不相等则表明扩容结束了
-                    // 条件2: 根据 rs << RESIZE_STAMP_SHIFT) + 2 以及扩容结束 -1 条件,
+                    // 条件1：检查高 16 位是 length 生成的标识符是否相等
+                    // 相等则表示正在扩容,不相等则表明扩容结束了
+                    // 条件2: 根据 （rs << RESIZE_STAMP_SHIFT) + 2 以及扩容结束 -1 条件,
                     // 说明如果条件2成立表示参与的线程数为 0 了,代表扩容完成
                     // 条件3: 表示线程参与扩容的最大线程数默认为 65535,也就是低 16 位全为 1
-                    // 条件4与条件5: 确保 tranfer() 中的 nextTable 相关初始化逻辑已走完。
+                    // 条件4与条件5: 确保 transfer() 中的 nextTable 相关初始化逻辑已走完。
                     if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
                         sc == rs + MAX_RESIZERS || (nt = nextTable) == null ||
                         transferIndex <= 0)
@@ -2327,9 +2335,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                     if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1))
                         transfer(tab, nt);
                 }
-                // 没有线程在进行扩容，将sizeCtl 的值改为 (rs << RESIZE_STAMP_SHIFT) + 2)，
-                // 假如 sizeCtl = 32795 ,因为高16位为 0, 所以 rs << RESIZE_STAMP_SHIFT) 则把低16位移至高16位
-                // 结果: 高16位是原来的低16位,由于 + 2 则低16位 0000 0000 0000 0010 （高 16 位是 length 生成的标识符，低 16 位值减一 是扩容的线程数 ）
+                // 没有线程在进行扩容，将 sizeCtl 的值改为 (rs << RESIZE_STAMP_SHIFT) + 2)，
+                // 假如 sizeCtl = 32795 ,因为高16位为 0, 所以 rs << RESIZE_STAMP_SHIFT 则把低16位移至高16位
+                // 结果: 高16位是原来的低16位,由于 + 2 则低16位 0000 0000 0000 0010 （高 16 位是 length 生成的标识符，低 16 位非0值减一 是扩容的线程数 ）
                 // 1000 0000 0001 1011 0000 0000 0000 0010
                 else if (U.compareAndSwapInt(this, SIZECTL, sc,
                                              (rs << RESIZE_STAMP_SHIFT) + 2))
@@ -2430,7 +2438,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         // 每个线程处理桶的最小数目，可以看出核数越高步长越小，最小16个。
         if ((stride = (NCPU > 1) ? (n >>> 3) / NCPU : n) < MIN_TRANSFER_STRIDE)
             stride = MIN_TRANSFER_STRIDE; // subdivide range
-        // 开始我疑惑为什么不加锁,难道安全吗? 后来根据上文逻辑分析一下,利用 sc < 0, 和 cas 操作
+        // 开始我疑惑为什么不加锁,难道线程安全吗? 后来根据上文逻辑分析一下,利用 sc < 0, 和 cas 操作
         // nextTab == null 只有一个线程能进
         if (nextTab == null) {            // initiating
             try {

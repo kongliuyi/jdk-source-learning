@@ -650,6 +650,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             // 检查 p 节点是不是 TreeNode 阶类型节点（主要确认该 Hash 的链表是不是红黑树）
             // jdk8 在哈希碰撞的链表长度达到 TREEIFY_THRESHOLD（默认8)后，会把该链表转变成树结构，提高了性能。
             else if (p instanceof TreeNode)
+                // 插入返回 null，修改返回旧节点
                 e = ((TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
             else {
                 // 遍历该哈希所在的链表，并统计链表长度
@@ -697,18 +698,23 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * @return the table
      */
     final Node<K,V>[] resize() {
+        // 旧容器
         Node<K,V>[] oldTab = table;
+        // 旧容器长度
         int oldCap = (oldTab == null) ? 0 : oldTab.length;
+        // 旧容器的扩容阈值
         int oldThr = threshold;
         int newCap, newThr = 0;
-        // 如果 table 不为空，表明已经初始化过了
+        // 如果旧容器长度大于0，表明已经初始化过了
         if (oldCap > 0) {
-            // 当 table 容量超过容量最大值(1073741824)，则不再扩容
+            // 当旧容器容量超过容量最大值(1073741824)，则不再扩容
             if (oldCap >= MAXIMUM_CAPACITY) {
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
             }
-            // 按旧容量和阈值的2倍计算新容量和阈值的大小(假设旧容量为 oldCap = 16，新容量为 newCap = 32，newThr = 24)
+            // 当旧容量的2倍在（MAXIMUM_CAPACITY,DEFAULT_INITIAL_CAPACITY]范围内，
+            // 就按旧容量和阈值的2倍计算新容量和阈值的大小
+            // 假设旧容量为 oldCap = 16，oldThr = 12，新容量为 newCap = 32，newThr = 24
             else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
                      oldCap >= DEFAULT_INITIAL_CAPACITY)
                 newThr = oldThr << 1; // double threshold
@@ -2046,19 +2052,27 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         final TreeNode<K,V> putTreeVal(HashMap<K,V> map, Node<K,V>[] tab,
                                        int h, K k, V v) {
             Class<?> kc = null;
+            // 标识是否被收索过
             boolean searched = false;
+            // 找到 root 根节点
             TreeNode<K,V> root = (parent != null) ? root() : this;
+            // 从根节点开始遍历循环
             for (TreeNode<K,V> p = root;;) {
                 int dir, ph; K pk;
+                // 根据 hash 值 判断方向
                 if ((ph = p.hash) > h)
+                    // 大于放左侧
                     dir = -1;
                 else if (ph < h)
+                    // 小于放右侧
                     dir = 1;
+                 // 如果 key 相等  直接返回该节点的引用 外边的方法会对其 value 进行设置
                 else if ((pk = p.key) == k || (k != null && k.equals(pk)))
                     return p;
                 else if ((kc == null &&
                           (kc = comparableClassFor(k)) == null) ||
                          (dir = compareComparables(kc, k, pk)) == 0) {
+                    // 在左右子树递归的寻找 是否有 key 的 hash 相同  并且 equals 相同的节点
                     if (!searched) {
                         TreeNode<K,V> q, ch;
                         searched = true;
@@ -2066,23 +2080,33 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                              (q = ch.find(h, k, kc)) != null) ||
                             ((ch = p.right) != null &&
                              (q = ch.find(h, k, kc)) != null))
+                            // 找到了就直接返回
                             return q;
                     }
+                    // 说明红黑树中没有与之 equals 相等的  那就必须进行插入操作
+                    // 打破平衡的方法的 分出大小 结果 只有-1 1
                     dir = tieBreakOrder(k, pk);
                 }
 
                 TreeNode<K,V> xp = p;
+                // 找到要插入节点的位置
                 if ((p = (dir <= 0) ? p.left : p.right) == null) {
                     Node<K,V> xpn = xp.next;
+                    // 创建出一个新的节点
                     TreeNode<K,V> x = map.newTreeNode(h, k, v, xpn);
                     if (dir <= 0)
+                        // 小于父亲节点  新节点放左孩子位置
                         xp.left = x;
                     else
+                        // 大于父亲节点  放右孩子位置
                         xp.right = x;
+                    // 维护双链表关系
                     xp.next = x;
                     x.parent = x.prev = xp;
                     if (xpn != null)
                         ((TreeNode<K,V>)xpn).prev = x;
+                    // 将 root 移到 table 数组的 i 位置的第一个节点
+                    // 插入操作过红黑树之后 重新调整平衡。
                     moveRootToFront(tab, balanceInsertion(root, x));
                     return null;
                 }
