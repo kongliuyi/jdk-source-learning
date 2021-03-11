@@ -1023,7 +1023,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                         new Node<K,V>(hash, key, value, null)))
                     break;                   // no lock when adding to empty bin
             }
-            // 检查 table[i] 的节点的 hash 是否等于 MOVED，如果等于，则检测到正在扩容，则帮助其扩容.ps: 该下标位的哈希桶已经迁移完成
+            // 检查 table[i] 的节点的 hash 是否等于 MOVED，如果等于，则检测到正在扩容，则帮助其扩容.
+            // ps: 该下标位的哈希桶已经迁移完成
             else if ((fh = f.hash) == MOVED)
                 tab = helpTransfer(tab, f);
             else {
@@ -1032,7 +1033,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 synchronized (f) {
                     // 双重检查,哈希桶首节点不是原来的,说明有线程扩容了并且成功了,那就循环重新再来一遍
                     if (tabAt(tab, i) == f) {
-                        // 表明是链表结点类型，hash值是大于0的，即 spread() 方法计算而来
+                        // 表明是链表结点类型，hash 值是大于 0 的，即 spread() 方法计算而来
                         if (fh >= 0) {
                             binCount = 1;
                             for (Node<K,V> e = f;; ++binCount) {
@@ -2196,6 +2197,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                         ((ek = e.key) == k || (ek != null && k.equals(ek))))
                         return e;
                     if (eh < 0) {
+                        // 表示旧 Table 扩容刚完成，新 Table 又扩容了。为什么这么快就要扩容呢？
+                        // 因为扩容期间并不限制旧 Table 插入
                         if (e instanceof ForwardingNode) {
                             tab = ((ForwardingNode<K,V>)e).nextTable;
                             continue outer;
@@ -2301,10 +2304,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 fullAddCount(x, uncontended);
                 return;
             }
-            // 如果 check <= 1 直接返回；对 hash 桶的首节点操作直接返回
-            // check < 0  未知待研究
-            // check = 0, 表明符合插入条件的是 hash 桶的首节点是 null
-            // check = 1, 未知待研究
+            // 如果 check <= 1 直接返回；表明是对 hash 桶的首节点操作直接返回
+            // check = 0, 表明 hash 桶的首节点是 null, hash 桶首节点插入操作，
+            // check = 1, 表明 hash 桶的第二个节点是 null, hash 桶第二个节点插入操作，
             if (check <= 1)
                 return;
             // 记录了当前 map 中总共添加了多少节点。
@@ -2439,7 +2441,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         if ((stride = (NCPU > 1) ? (n >>> 3) / NCPU : n) < MIN_TRANSFER_STRIDE)
             stride = MIN_TRANSFER_STRIDE; // subdivide range
         // 开始我疑惑为什么不加锁,难道线程安全吗? 后来根据上文逻辑分析一下,利用 sc < 0, 和 cas 操作
-        // nextTab == null 只有一个线程能进
+        // nextTab == null 只有一个线程能进，并且这个线程是第一个开始扩容的线程
         if (nextTab == null) {            // initiating
             try {
                 // n << 1,扩容到 2 倍
@@ -2477,7 +2479,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                     i = -1;
                     advance = false;
                 }
-                // transferIndex 减去已分配出去的桶。
+                // transferIndex 减去已分配出去的桶。根据上文 stride 等于每个线程处理桶的最小数目，最小 16 个
+                // 假设 tab.length = nextIndex = transferIndex = stride = 16，
+                // 所以第一个线程首次进入 transferIndex = nextBound = bound = 0，i = 15
                 else if (U.compareAndSwapInt
                          (this, TRANSFERINDEX, nextIndex,
                           nextBound = (nextIndex > stride ?
@@ -2488,11 +2492,11 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                     advance = false;
                 }
             }
-            // 当前线程自己的活已经做完或所有线程的活都已做完，
+            // i < 0 表示当前线程自己的活已经做完或者所有线程的活都已做完，
             // 第二与第三个条件应该是下面让"i = n"后，再次进入循环时要做的边界检查。
             if (i < 0 || i >= n || i + n >= nextn) {
                 int sc;
-                // 所有线程已干完活，最后才走这里。
+                // finishing = true 表示所有线程已干完活。
                 if (finishing) {
                     nextTable = null;
                     // 替换新 table
@@ -2511,13 +2515,15 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                     i = n; // recheck before commit
                 }
             }
+            // 哈希桶首个节点为 null，通过插入 ForwardingNode 节点标识表示迁移完成
             else if ((f = tabAt(tab, i)) == null)
-                // 如果 i 处是 ForwardingNode 表示第 i 个桶已经有线程在负责迁移了。
+                // 如果 i 处是 ForwardingNode 表示第 i 个桶已经迁移完成了。
                 advance = casTabAt(tab, i, null, fwd);
+            // 表示其他线程在该下标位的哈希桶已经迁移完成
             else if ((fh = f.hash) == MOVED)
                 advance = true; // already processed
             else {
-                // 桶内元素迁移需要加锁。
+                // 桶内元素迁移需要加锁。与插入节点锁对象一致，哈希桶首个节点作为锁对象
                 synchronized (f) {
                     if (tabAt(tab, i) == f) {
                         Node<K,V> ln, hn;
