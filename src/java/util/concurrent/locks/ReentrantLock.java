@@ -127,21 +127,30 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          * subclasses, but both need nonfair try for trylock method.
          */
         final boolean nonfairTryAcquire(int acquires) {
+            // 获取当前线程
             final Thread current = Thread.currentThread();
+            // 获取 state 变量值
             int c = getState();
+            // 没有线程占用锁
             if (c == 0) {
+                // CAS 重新获取锁
                 if (compareAndSetState(0, acquires)) {
+                    // 占用锁成功,设置独占线程为当前线程
                     setExclusiveOwnerThread(current);
                     return true;
                 }
             }
+            // 当前线程已经持有该锁，即锁重入 - 证明 ReentrantLock.NonfairSync 支持锁重入
             else if (current == getExclusiveOwnerThread()) {
+                // state + 1 , 所以 state = 0 无线程持久锁，state > 0，线程持锁次数
                 int nextc = c + acquires;
                 if (nextc < 0) // overflow
                     throw new Error("Maximum lock count exceeded");
+                // 更新 state
                 setState(nextc);
                 return true;
             }
+            // 没有获取锁原因，可能为满足上述条件也可能队列未初始化
             return false;
         }
 

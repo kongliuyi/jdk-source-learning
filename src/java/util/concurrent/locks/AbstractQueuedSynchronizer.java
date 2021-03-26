@@ -581,13 +581,18 @@ public abstract class AbstractQueuedSynchronizer
      * @return node's predecessor
      */
     private Node enq(final Node node) {
+        // 开始自旋
         for (;;) {
             Node t = tail;
+            // 尾节点为空，说明队列未初始化，必须先初始化
+            // 尾节点不为空，说明上一步骤 CAS 操作失败，所以来这边自旋入队
             if (t == null) { // Must initialize
+                // 如果 tail 为空,则新建一个 head 节点,并且 tail 指向 head
                 if (compareAndSetHead(new Node()))
                     tail = head;
             } else {
                 node.prev = t;
+                // CAS 将新节点设为尾节点入队
                 if (compareAndSetTail(t, node)) {
                     t.next = node;
                     return t;
@@ -597,22 +602,29 @@ public abstract class AbstractQueuedSynchronizer
     }
 
     /**
+     * 将新节点和当前线程关联并且入队列
      * Creates and enqueues node for current thread and given mode.
      *
-     * @param mode Node.EXCLUSIVE for exclusive, Node.SHARED for shared
-     * @return the new node
+     * @param mode Node.EXCLUSIVE for exclusive, Node.SHARED for shared 独占/共享
+     * @return the new node 新节点
      */
     private Node addWaiter(Node mode) {
+        // 初始化节点,设置关联线程和模式(独占 or 共享)
         Node node = new Node(Thread.currentThread(), mode);
-        // Try the fast path of enq; backup to full enq on failure
+        //  获取尾节点引用，Try the fast path of enq; backup to full enq on failure
         Node pred = tail;
+        // 尾节点不为空,说明队列已经初始化过
         if (pred != null) {
             node.prev = pred;
+            // CAS 设置新节点为尾节点
             if (compareAndSetTail(pred, node)) {
                 pred.next = node;
                 return node;
             }
         }
+        // 通过上文分析
+        // 1.尾节点为空,说明队列还未初始化,需要初始化 head 节点并入队新节点
+        // 2.上文 CAS 入尾队操作失败
         enq(node);
         return node;
     }
@@ -784,6 +796,7 @@ public abstract class AbstractQueuedSynchronizer
     }
 
     /**
+     * 判断当前线程获取锁失败之后是否需要挂起
      * Checks and updates status for a node that failed to acquire.
      * Returns true if thread should block. This is the main signal
      * control in all acquire loops.  Requires that pred == node.prev.
@@ -793,15 +806,18 @@ public abstract class AbstractQueuedSynchronizer
      * @return {@code true} if thread should block
      */
     private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+        // 前驱节点的状态
         int ws = pred.waitStatus;
         if (ws == Node.SIGNAL)
             /*
+             * 前驱节点状态为 signal,表示后继线程需要被释
              * This node has already set status asking a release
              * to signal it, so it can safely park.
              */
             return true;
         if (ws > 0) {
             /*
+             * 从队尾向前寻找第一个状态不为 CANCELLED 的节点
              * Predecessor was cancelled. Skip over predecessors and
              * indicate retry.
              */
@@ -811,6 +827,7 @@ public abstract class AbstractQueuedSynchronizer
             pred.next = node;
         } else {
             /*
+             * 将前驱节点的状态设置为 SIGNAL,由于自旋所以下次进入，ws == Node.SIGNAL
              * waitStatus must be 0 or PROPAGATE.  Indicate that we
              * need a signal, but don't park yet.  Caller will need to
              * retry to make sure it cannot acquire before parking.
@@ -847,6 +864,7 @@ public abstract class AbstractQueuedSynchronizer
      */
 
     /**
+     * 已经入队的线程尝试获取锁
      * Acquires in exclusive uninterruptible mode for thread already in
      * queue. Used by condition wait methods as well as acquire.
      *
@@ -855,19 +873,28 @@ public abstract class AbstractQueuedSynchronizer
      * @return {@code true} if interrupted while waiting
      */
     final boolean acquireQueued(final Node node, int arg) {
+        // 标记是否成功获取锁
         boolean failed = true;
         try {
             boolean interrupted = false;
             for (;;) {
+                // 获取前驱节点
                 final Node p = node.predecessor();
+                // 如果前驱是 head,即该结点已成老二，那么便有资格去尝试获取锁
                 if (p == head && tryAcquire(arg)) {
+                    // 获取成功,将当前节点设置为 head 节点
                     setHead(node);
+                    // 原 head 节点出队,在某个时间点被 GC 回收
                     p.next = null; // help GC
+                    // 获取成功
                     failed = false;
+                    // 返回是否被中断过
                     return interrupted;
                 }
+                // 判断获取锁失败后是否可以挂起,若可以则挂起
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
+                    // 线程若被中断,设置 interrupted 为 true
                     interrupted = true;
             }
         } finally {
