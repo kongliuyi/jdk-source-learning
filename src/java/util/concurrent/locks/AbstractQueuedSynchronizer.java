@@ -576,6 +576,8 @@ public abstract class AbstractQueuedSynchronizer
     static final long spinForTimeoutThreshold = 1000L;
 
     /**
+     * 初始化队列并且入队新节点
+     *
      * Inserts node into queue, initializing if necessary. See picture above.
      * @param node the node to insert
      * @return node's predecessor
@@ -587,7 +589,7 @@ public abstract class AbstractQueuedSynchronizer
             // 尾节点为空，说明队列未初始化，必须先初始化
             // 尾节点不为空，说明上一步骤 CAS 操作失败，所以来这边自旋入队
             if (t == null) { // Must initialize
-                // 如果 tail 为空,则新建一个 head 节点,并且 tail 指向 head
+                // 如果 tail 为空,则新建一个"哨兵节点"（哑节点）CAS 设置到 head 中, ,成功将 tail 指向 head
                 if (compareAndSetHead(new Node()))
                     tail = head;
             } else {
@@ -624,7 +626,7 @@ public abstract class AbstractQueuedSynchronizer
         }
         // 通过上文分析
         // 1.尾节点为空,说明队列还未初始化,需要初始化 head 节点并入队新节点
-        // 2.上文 CAS 入尾队操作失败
+        // 2.上文 CAS 入尾队操作失败，（表明有其他线程先一步入队）
         enq(node);
         return node;
     }
@@ -655,6 +657,7 @@ public abstract class AbstractQueuedSynchronizer
          */
         int ws = node.waitStatus;
         if (ws < 0)
+            // 重置头节点 waitStatus 为 0
             compareAndSetWaitStatus(node, ws, 0);
 
         /*
@@ -664,8 +667,10 @@ public abstract class AbstractQueuedSynchronizer
          * non-cancelled successor.
          */
         Node s = node.next;
+        // s.waitStatus > 0 说明 s 节点被中断了
         if (s == null || s.waitStatus > 0) {
             s = null;
+            // 从后往前查找，寻找最后一个需要唤醒的节点
             for (Node t = tail; t != null && t != node; t = t.prev)
                 if (t.waitStatus <= 0)
                     s = t;
@@ -817,7 +822,7 @@ public abstract class AbstractQueuedSynchronizer
             return true;
         if (ws > 0) {
             /*
-             * 从队尾向前寻找第一个状态不为 CANCELLED 的节点
+             * 从前驱节点向前寻找第一个状态不为 CANCELLED 的节点
              * Predecessor was cancelled. Skip over predecessors and
              * indicate retry.
              */
@@ -865,6 +870,7 @@ public abstract class AbstractQueuedSynchronizer
 
     /**
      * 已经入队的线程尝试获取锁
+     *
      * Acquires in exclusive uninterruptible mode for thread already in
      * queue. Used by condition wait methods as well as acquire.
      *
@@ -880,7 +886,8 @@ public abstract class AbstractQueuedSynchronizer
             for (;;) {
                 // 获取前驱节点
                 final Node p = node.predecessor();
-                // 如果前驱是 head,即该结点已成老二，那么便有资格去尝试获取锁
+                // 如果前驱是 head （也就是哨兵节点，只有简述队列长度的作用，没有实质功能）,
+                // 即该结点已成老二，那么便有资格去尝试获取锁
                 if (p == head && tryAcquire(arg)) {
                     // 获取成功,将当前节点设置为 head 节点
                     setHead(node);
@@ -1010,7 +1017,9 @@ public abstract class AbstractQueuedSynchronizer
         boolean failed = true;
         try {
             for (;;) {
+                // 获取前驱节点
                 final Node p = node.predecessor();
+                // 如果前驱是 head （也就是哨兵节点，只有简述队列长度的作用，没有实质功能）,
                 if (p == head) {
                     int r = tryAcquireShared(arg);
                     if (r >= 0) {
@@ -1022,6 +1031,7 @@ public abstract class AbstractQueuedSynchronizer
                 }
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
+                    // 前驱节点 p.waitStatus = Node.SIGNAL 或 线程被中断 则抛出 InterruptedException
                     throw new InterruptedException();
             }
         } finally {
@@ -1287,6 +1297,7 @@ public abstract class AbstractQueuedSynchronizer
     public final boolean release(int arg) {
         if (tryRelease(arg)) {
             Node h = head;
+            // 如果 waitStatus 的状态设置为 SIGNAL,则说明它的 next 节点需要其唤醒
             if (h != null && h.waitStatus != 0)
                 unparkSuccessor(h);
             return true;

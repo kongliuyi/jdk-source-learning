@@ -150,19 +150,30 @@ public class ReentrantLock implements Lock, java.io.Serializable {
                 setState(nextc);
                 return true;
             }
-            // 没有获取锁原因，可能为满足上述条件也可能队列未初始化
+            // 没有获取锁原因，可能未满足上述条件也可能队列未初始化
             return false;
         }
 
+        /**
+         * 释放当前线程占用的锁
+         *
+         * @param releases /
+         * @return 是否释放成功
+         */
         protected final boolean tryRelease(int releases) {
+            // 计算释放后 state 值
             int c = getState() - releases;
+            // 如果不是当前线程占用锁,那么抛出异常
             if (Thread.currentThread() != getExclusiveOwnerThread())
                 throw new IllegalMonitorStateException();
             boolean free = false;
             if (c == 0) {
+                // 锁被重入次数为 0,表示释放成功
                 free = true;
+                // 清空独占线程
                 setExclusiveOwnerThread(null);
             }
+            // 更新 state 值
             setState(c);
             return free;
         }

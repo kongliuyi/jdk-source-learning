@@ -1073,7 +1073,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 }
                 // true 说明已经 put 成功,链表:binCount 代表链表长度. 红黑树: binCount = 2
                 if (binCount != 0) {
-                    // 如果节点数 >＝ 8，那么有可能转换链表结构为红黑树结构,为什么说有可能? 往下看
+                    // 如果原节点数 >＝ 8, 即新增节点后节点数 > 8，那么有可能转换链表结构为红黑树结构,为什么说有可能? 往下看
                     if (binCount >= TREEIFY_THRESHOLD)
                         treeifyBin(tab, i);
                     // 如果是修改，则返回修改前的 val
@@ -2326,7 +2326,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                     // 条件1：检查高 16 位是 length 生成的标识符是否相等
                     // 相等则表示正在扩容,不相等则表明扩容结束了
                     // 条件2: 根据 （rs << RESIZE_STAMP_SHIFT) + 2 以及扩容结束 -1 条件,
-                    // 说明如果条件2成立表示参与的线程数为 0 了,代表扩容完成
+                    // 说明如果条件 2 成立表示参与的线程数为 0 了,代表扩容完成
                     // 条件3: 表示线程参与扩容的最大线程数默认为 65535,也就是低 16 位全为 1
                     // 条件4与条件5: 确保 transfer() 中的 nextTable 相关初始化逻辑已走完。
                     if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
@@ -2437,7 +2437,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      */
     private final void transfer(Node<K,V>[] tab, Node<K,V>[] nextTab) {
         int n = tab.length, stride;
-        // 每个线程处理桶的最小数目，可以看出核数越高步长越小，最小16个。
+        // 计算每条线程处理的桶个数，每条线程处理的桶数量一样，如果CPU为单核，则使用一条线程处理所有桶
+        // 每个线程处理桶的最小数16个，可以看出核数越高步长越小。
         if ((stride = (NCPU > 1) ? (n >>> 3) / NCPU : n) < MIN_TRANSFER_STRIDE)
             stride = MIN_TRANSFER_STRIDE; // subdivide range
         // 开始我疑惑为什么不加锁,难道线程安全吗? 后来根据上文逻辑分析一下,利用 sc < 0, 和 cas 操作
@@ -2458,11 +2459,12 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             transferIndex = n;
         }
         int nextn = nextTab.length;
-        // 扩容时的特殊节点，标明此节点正在进行迁移，
-        // 扩容期间的元素查找要调用其 find() 方法在 nextTable 中查找元素。
-        // 初始化 ForwardingNode 时,hash = MOVED,表示正在扩容(解释上文)
+        // 新建一个占位对象，该占位对象的 hash = MOVED 值为 -1 该占位对象存在时表示集合正在扩容状态，key、value、next 属性均为 null ，nextTable 属性指向扩容后的数组
+        // 该占位对象主要有两个用途：
+        //   1、占位作用，用于标识数组该位置的桶已经迁移完毕，处于扩容中的状态。
+        //   2、作为一个转发的作用，扩容期间如果遇到查询操作，遇到转发节点，会把该查询操作转发到新的数组上去，不会阻塞查询操作。
         ForwardingNode<K,V> fwd = new ForwardingNode<K,V>(nextTab);
-        // 当前线程是否需要继续寻找下一个可处理的节点
+        // 当前线程是否需要继续寻找下一个可处理的桶
         boolean advance = true;
         // 所有桶是否都已迁移完成。
         boolean finishing = false; // to ensure sweep before committing nextTab
@@ -2474,14 +2476,16 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 // 每次循环都检查结束条件
                 if (--i >= bound || finishing)
                     advance = false;
-                    // 迁移总进度 <=0，表示所有桶都已迁移完成。
+                    // 迁移总进度, <=0 表示所有桶都已迁移完成或者需要迁移的桶已全部分配给线程了，后续协助扩容的线程没有可分配任务
                 else if ((nextIndex = transferIndex) <= 0) {
                     i = -1;
                     advance = false;
                 }
+                // 只有首次进入for循环才会进入这个判断里面去，设置 bound 和 i 的值，也就是领取到的迁移任务的数组区间 [bound, nextIndex)
                 // transferIndex 减去已分配出去的桶。根据上文 stride 等于每个线程处理桶的最小数目，最小 16 个
                 // 假设 tab.length = nextIndex = transferIndex = stride = 16，
                 // 所以第一个线程首次进入 transferIndex = nextBound = bound = 0，i = 15
+                // 待迁移桶的范围为[0, 16)
                 else if (U.compareAndSwapInt
                          (this, TRANSFERINDEX, nextIndex,
                           nextBound = (nextIndex > stride ?
@@ -2532,7 +2536,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                             // 由于 n 是 2 的幂次方（所有二进制位中只有一个1)，如 n = 16(0001 0000)，第4位为1，那么 hash&n 后的值第4位只能为 0 或 1。
                             // 假设原桶大小为16，扩容为32. 下标位置第1个旧哈希桶链表长度 2，分别哈希为 17 和 1（tab[0]）
                             // 则新桶下表位置分别为第17个 和 第 1 个,即 tab[16] 和 tab[0]
-                            // 所以可以根据 hash & n 的结果将所有结点分为两部分。
+                            // 所以可以根据 hash & n = 0 | n  ,结果将所有结点分为两部分。
                             int runBit = fh & n;
                             Node<K,V> lastRun = f;
                             // 找出最后一段完整的 fh & n 不变的链表，这样最后这一段链表就不用重新创建新结点了。
